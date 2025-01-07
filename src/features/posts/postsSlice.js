@@ -1,70 +1,190 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { jwtDecode } from "jwt-decode";
-import axios from "axios";
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
+    updateDoc,
+    deleteDoc,
+} from "firebase/firestore";
+import { db, storage } from "../../firebase";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
-const BASE_URL = "https://1c8b3ad3-b5ab-46a3-8bea-426be0bf282e-00-1ds7ywmeerzal.sisko.replit.dev";
+export const deletePost = createAsyncThunk(
+    "posts/deletePost",
+    async ({ userId, postId }) => {
+        try {
+            const postRef = doc(db, `users/${userId}/posts/${postId}`);
+            console.log(`users/${userId}/posts/${postId}`);
+            await deleteDoc(postRef);
+            return postId;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    }
+);
 
-//Async thunk for fetching a user's posts
+export const updatePost = createAsyncThunk(
+    "posts/updatePost",
+    async ({ userId, postId, newPostContent, newFile }) => {
+        try {
+            let newImageUrl;
+            if (newFile) {
+                const imageRef = ref(storage, `posts/${newFile.name}`);
+                const response = await uploadBytes(imageRef, newFile);
+                newImageUrl = await getDownloadURL(response.ref);
+            }
+            const postRef = doc(db, `users/${userId}/posts/${postId}`);
+            const postSnap = await getDoc(postRef);
+            if (postSnap.exists()) {
+                const postData = postSnap.data();
+                const updatedData = {
+                    ...postData,
+                    content: newPostContent || postData.content,
+                    imageUrl: newImageUrl || postData.imageUrl,
+                };
+                await updateDoc(postRef, updatedData);
+                const updatedPost = { id: postId, ...updatedData };
+                return updatedPost;
+            } else {
+                throw new Error("Post does not exist");
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    }
+);
+
 export const fetchPostsByUser = createAsyncThunk(
     "posts/fetchByUser",
     async (userId) => {
-        const response = await fetch(`${BASE_URL}/posts/user/${userId}`);
-        return response.json();
+        try {
+            const postsRef = collection(db, `users/${userId}/posts`);
+            const querySnapshot = await getDocs(postsRef);
+            const docs = querySnapshot.docs.map((doc) => ({
+                id: doc.id,
+                ...doc.data(),
+            }));
+            return docs;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
     }
-
 );
 
-//Async thunk for saveposts
 export const savePost = createAsyncThunk(
     "posts/savePost",
-    async (postContent) => {
-        //Get stored JWT Token
-        const token = localStorage.getItem("authToken");
-
-        //Decode the token to fetch user id
-        const decode = jwtDecode(token);
-        const userId = decode.id // May change depending on how the server encode the token
-        const data = {
-            title: "Post Title",  //Add functionality to set this properly
-            content: postContent,
-            user_id: userId,
-        };
-
-        const response = await axios.post(`${BASE_URL}/posts`, data)
-        return response.data;
+    async ({ userId, postContent, file }) => {
+        try {
+            const imageRef = ref(storage, `posts/${file.name}`);
+            const response = await uploadBytes(imageRef, file);
+            const imageUrl = await getDownloadURL(response.ref);
+            const postsRef = collection(db, `users/${userId}/posts`);
+            const newPostRef = doc(postsRef);
+            await setDoc(newPostRef, { content: postContent, likes: [], imageUrl });
+            const newPost = await getDoc(newPostRef);
+            const post = {
+                id: newPost.id,
+                ...newPost.data(),
+            };
+            return post;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
     }
-
 );
 
-//Slice
+export const likePost = createAsyncThunk(
+    "posts/likePost",
+    async ({ userId, postId }) => {
+        try {
+            const postRef = doc(db, `users/${userId}/posts/${postId}`);
+            const docSnap = await getDoc(postRef);
+            console.log(docSnap.exists());
+
+            if (docSnap.exists()) {
+                const postData = docSnap.data();
+                const likes = [...postData.likes, userId];
+                console.log(likes);
+                await setDoc(postRef, { ...postData, likes });
+            }
+
+            return { userId, postId };
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    }
+);
+
+export const removeLikeFromPost = createAsyncThunk(
+    "posts/removeLikeFromPost",
+    async ({ userId, postId }) => {
+        try {
+            const postRef = doc(db, `users/${userId}/posts/${postId}`);
+            const docSnap = await getDoc(postRef);
+
+            if (docSnap.exists()) {
+                const postData = docSnap.data();
+                const likes = postData.likes.filter((id) => id !== userId);
+                await setDoc(postRef, { ...postData, likes });
+            }
+
+            return { userId, postId };
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    }
+);
+
 const postsSlice = createSlice({
     name: "posts",
     initialState: { posts: [], loading: true },
-    reducers: {},
     extraReducers: (builder) => {
-        builder.addCase(fetchPostsByUser.fulfilled, (state, action) => {
-            //action.payload = [{id:1, content: "when is lunch"}]
-            //we got it from the fetchPostsByUser output or return
-            state.posts = action.payload;
-            //state.posts = []
-            //state.posts is the current posts that you are showing
-
-            //since action payload is returned, we will update our state
-            //state.posts = [{id:1, content: "when is lunch"}]
-
-            //before: state.loading = true
-            //we want the loading animation to stops
-            state.loading = false; //stopping loading animation
-        }),
-            builder.addCase(savePost.fulfilled, (state, action) => {
+        builder
+            .addCase(fetchPostsByUser.fulfilled, (state, action) => {
+                state.posts = action.payload;
+                state.loading = false;
+            })
+            .addCase(savePost.fulfilled, (state, action) => {
                 state.posts = [action.payload, ...state.posts];
+            })
+            .addCase(likePost.fulfilled, (state, action) => {
+                const { userId, postId } = action.payload;
+                const postIndex = state.posts.findIndex((post) => post.id === postId);
+                if (postIndex !== -1) {
+                    state.posts[postIndex].likes.push(userId);
+                }
+            })
+            .addCase(removeLikeFromPost.fulfilled, (state, action) => {
+                const { userId, postId } = action.payload;
+                const postIndex = state.posts.findIndex((post) => post.id === postId);
+                if (postIndex !== -1) {
+                    state.posts[postIndex].likes = state.posts[postIndex].likes.filter(
+                        (id) => id !== userId
+                    );
+                }
+            })
+            .addCase(updatePost.fulfilled, (state, action) => {
+                const updatedPost = action.payload;
+                const postIndex = state.posts.findIndex(
+                    (post) => post.id === updatedPost.id
+                );
+                if (postIndex !== -1) {
+                    state.posts[postIndex] = updatedPost;
+                }
+            })
+            .addCase(deletePost.fulfilled, (state, action) => {
+                const deletedPostId = action.payload;
+                state.posts = state.posts.filter((post) => post.id !== deletedPostId);
             });
     },
 });
-
-//extraReducers are use to call the async state
-//builder = object to add diff reducers
-//addCase = if else statement
-//.fulfilled - if it is done
 
 export default postsSlice.reducer;

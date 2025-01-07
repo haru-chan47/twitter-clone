@@ -1,35 +1,41 @@
-import { Button, Col, Image, Row, Modal, Form } from "react-bootstrap";
-import { useEffect, useState } from "react";
-import axios from "axios";
-import useLocalStorage from "use-local-storage";
+import {
+    GoogleAuthProvider,
+    createUserWithEmailAndPassword,
+    getAuth,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+} from "firebase/auth";
+import { useContext, useEffect, useState } from "react";
+import { Button, Col, Form, Image, Modal, Row } from "react-bootstrap";
 import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../components/AuthProvider";
 
 export default function AuthPage() {
     const loginImage = "https://sig1.co/img-twitter-1";
-    const url =
-        "https://1c8b3ad3-b5ab-46a3-8bea-426be0bf282e-00-1ds7ywmeerzal.sisko.replit.dev";
-
-    // Possible values: null (no modal shows), "Login", "SignUp"
+    // values: null (no modal show), "login", "signup"
     const [modalShow, setModalShow] = useState(null);
-    const handleShowSignUp = () => setModalShow("SignUp");
-    const handleShowLogin = () => setModalShow("Login");
+    const handleShowSignUp = () => setModalShow("signup");
+    const handleShowLogin = () => setModalShow("login");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
-    const [authToken, setAuthToken] = useLocalStorage("authToken", "");
-
     const navigate = useNavigate();
+    const auth = getAuth();
+    const { currentUser } = useContext(AuthContext);
+    const provider = new GoogleAuthProvider();
 
     useEffect(() => {
-        if (authToken) {
-            navigate("/profile");
-        }
-    }, [authToken, navigate]);
+        if (currentUser) navigate("/profile");
+    }, [currentUser, navigate]);
 
     const handleSignUp = async (e) => {
         e.preventDefault();
         try {
-            const res = await axios.post(`${url}/signup`, { username, password });
-            console.log(res.data);
+            const res = await createUserWithEmailAndPassword(
+                auth,
+                username,
+                password
+            );
+            console.log(res.user);
         } catch (error) {
             console.error(error);
         }
@@ -37,16 +43,25 @@ export default function AuthPage() {
     const handleLogin = async (e) => {
         e.preventDefault();
         try {
-            const res = await axios.post(`${url}/login`, { username, password });
-            if (res.data && res.data.auth === true && res.data.token) {
-                setAuthToken(res.data.token); // Save token to localStorage.
-                console.log("Login was successful, token saved");
-            }
+            const res = await signInWithEmailAndPassword(auth, username, password);
+            console.log(res.user);
         } catch (error) {
             console.error(error);
         }
     };
+
+    const handlgeGoogleLogin = async (e) => {
+        e.preventDefault();
+        try {
+            const res = await signInWithPopup(auth, provider);
+            console.log(res.user);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
     const handleClose = () => setModalShow(null);
+
     return (
         <Row>
             <Col sm={6}>
@@ -65,7 +80,11 @@ export default function AuthPage() {
                     Join Twitter today.
                 </h2>
                 <Col sm={5} className="d-grid gap-2">
-                    <Button className="rounded-pill" variant="outline-dark">
+                    <Button
+                        className="rounded-pill"
+                        variant="outline-dark"
+                        onClick={handlgeGoogleLogin}
+                    >
                         <i className="bi bi-google"></i> Sign up with Google
                     </Button>
                     <Button className="rounded-pill" variant="outline-dark">
@@ -75,11 +94,7 @@ export default function AuthPage() {
                     <Button className="rounded-pill" onClick={handleShowSignUp}>
                         Create an account
                     </Button>
-                    <p style={{ fontSize: "12px" }}>
-                        By signing up, you agree to the Terms of Service and Privacy Policy,
-                        including Cookie Use.
-                    </p>
-
+                    <p style={{ fontSize: "12px" }}> Agree to terms</p>
                     <p className="mt-5" style={{ fontWeight: "bold" }}>
                         Already have an account?
                     </p>
@@ -99,19 +114,20 @@ export default function AuthPage() {
                 >
                     <Modal.Body>
                         <h2 className="mb-4" style={{ fontWeight: "bold" }}>
-                            {modalShow === "SignUp"
+                            {modalShow === "signup"
                                 ? "Create your account"
                                 : "Log in to your account"}
                         </h2>
+
                         <Form
                             className="d-grid gap-2 px-5"
-                            onSubmit={modalShow === "SignUp" ? handleSignUp : handleLogin}
+                            onSubmit={modalShow === "signup" ? handleSignUp : handleLogin}
                         >
-                            <Form.Group className="mb-3" controlId="formBasicEmail">
+                            <Form.Group className="mb-3" controlId="formBasicEmai">
                                 <Form.Control
                                     onChange={(e) => setUsername(e.target.value)}
                                     type="email"
-                                    placeholder="Enter username"
+                                    placeholder="Enter email"
                                 />
                             </Form.Group>
 
@@ -122,7 +138,8 @@ export default function AuthPage() {
                                     placeholder="Password"
                                 />
                             </Form.Group>
-                            <p style={{ fontSize: "12px" }}>
+
+                            <p style={{ fontSize: 12 }}>
                                 By signing up, you agree to the Terms of Service and Privacy
                                 Policy, including Cookie Use. SigmaTweets may use your contact
                                 information, including your email address and phone number for
@@ -131,9 +148,8 @@ export default function AuthPage() {
                                 Learn more. Others will be able to find you by email or phone
                                 number, when provided, unless you choose otherwise here.
                             </p>
-
                             <Button className="rounded-pill" type="submit">
-                                {modalShow === "SignUp" ? "Sign up" : "Log in"}
+                                {modalShow === "signup" ? "Sign up" : "Log in"}
                             </Button>
                         </Form>
                     </Modal.Body>
