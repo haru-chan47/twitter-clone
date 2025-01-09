@@ -80,18 +80,26 @@ export const savePost = createAsyncThunk(
     "posts/savePost",
     async ({ userId, postContent, file }) => {
         try {
-            const imageRef = ref(storage, `posts/${file.name}`);
-            const response = await uploadBytes(imageRef, file);
-            const imageUrl = await getDownloadURL(response.ref);
+            let imageUrl = null;
+            if (file) {
+                const uniqueFileName = `posts/${Date.now()}_${file.name}`;
+                const imageRef = ref(storage, uniqueFileName);
+                const response = await uploadBytes(imageRef, file);
+                imageUrl = await getDownloadURL(response.ref);
+            }
             const postsRef = collection(db, `users/${userId}/posts`);
             const newPostRef = doc(postsRef);
-            await setDoc(newPostRef, { content: postContent, likes: [], imageUrl });
+            const postData = {
+                content: postContent,
+                likes: [],
+                imageUrl
+            };
+            await setDoc(newPostRef, postData);
             const newPost = await getDoc(newPostRef);
-            const post = {
+            return {
                 id: newPost.id,
                 ...newPost.data(),
             };
-            return post;
         } catch (error) {
             console.error(error);
             throw error;
